@@ -1,0 +1,95 @@
+---
+- name: "Check for manual import of NVM"
+  ansible.builtin.lineinfile:
+    name: ~/.zshrc
+    regex: "[\\S\\s]*(nvm.sh)[\\S\\s]*"
+    state: absent
+  check_mode: true
+  register: conf
+  become: true
+  become_user: itsc
+
+- name: Check for manual NVM import # noqa no-handler
+  ansible.builtin.fail:
+    msg: "Please remove manual NVM import from ~/.zshrc and try again"
+  when: conf is changed
+
+- name: Install NVM ZSH plugin
+  ansible.builtin.git:
+    repo: https://github.com/lukechilds/zsh-nvm.git
+    dest: ~/.oh-my-zsh/custom/plugins/zsh-nvm
+  become: true
+  become_user: itsc
+
+- name: Add NVM ZSH plugin to config
+  ansible.builtin.lineinfile:
+    path: ~/.zshrc
+    line: plugins+=(zsh-nvm npm)
+    insertafter: "^plugins=\\([\\S\\s]*\\)"
+  become: true
+  become_user: itsc
+
+- name: Add NVM Completions to config
+  ansible.builtin.lineinfile:
+    path: ~/.zshrc
+    line: export NVM_COMPLETION=true
+    insertbefore: "^plugins=\\([\\S\\s]*\\)"
+  become: true
+  become_user: itsc
+
+- name: Install NVM
+  ansible.builtin.shell: >
+    /bin/zsh -c "source ~/.zshrc && nvm upgrade"
+  become: true
+  become_user: itsc
+  async: 15
+  poll: 15
+  register: nvm_install_status
+  changed_when: not "You're already up to date" in nvm_install_status.stdout
+
+- name: Install NodeJS and set version
+  ansible.builtin.shell: >
+    /bin/zsh -c "source ~/.zshrc && nvm install {{ node_version }} && nvm alias default node"
+  async: 15
+  poll: 15
+  become: true
+  become_user: itsc
+  register: node_install_status
+  changed_when: not "already installed" in node_install_status.stderr
+
+- name: Determine node version
+  ansible.builtin.shell: >
+    /bin/zsh -c "source ~/.zshrc && node -v"
+  register: nodejs_version
+  changed_when: false
+  become: true
+  become_user: itsc
+
+- name: Add Node to global commands
+  ansible.builtin.file:
+    src: "/home/itsc/.nvm/versions/node/{{ nodejs_version.stdout }}/bin/node"
+    dest: /usr/bin/node
+    state: link
+  become: true
+
+- name: Add NPM to global commands
+  ansible.builtin.file:
+    src: "/home/itsc/.nvm/versions/node/{{ nodejs_version.stdout }}/bin/npm"
+    dest: /usr/bin/npm
+    state: link
+  become: true
+
+- name: Add NPX to global commands
+  ansible.builtin.file:
+    src: "/home/itsc/.nvm/versions/node/{{ nodejs_version.stdout }}/bin/npx"
+    dest: /usr/bin/npx
+    state: link
+  become: true
+
+- name: Disable Husky on the server
+  ansible.builtin.include_role:
+    name: environment
+  vars:
+    file_name: husky
+    env: HUSKY
+    value: "0"
