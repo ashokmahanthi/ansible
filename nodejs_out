@@ -1,0 +1,57 @@
+---
+- hosts: all:!localhost
+  pre_tasks:
+    - name: Check to see if NVM is installed
+      ansible.builtin.stat:
+        path: ~/.nvm
+      register: nvm_directory
+      become: true
+      become_user: itsc
+
+    - name: Determine node version
+      ansible.builtin.command: node -v
+      register: nodejs_version
+      become: true
+      ignore_errors: true
+      changed_when: false
+
+    - name: Check for node version < 12
+      ansible.builtin.fail:
+        msg: "Invalid NodeJS Version: {{ nodejs_version.stdout }}"
+      when: nodejs_version.stdout is version('v12', '<')
+
+    - name: Check if NVM is installed
+      ansible.builtin.fail:
+        msg: "NVM not installed"
+      when: not nvm_directory.stat.exists
+
+    - name: Set NodeJS to Update to Latest 12
+      ansible.builtin.set_fact:
+        nodejs_update_version: "12"
+      when: nodejs_version.stdout is version('v12', '>') and nodejs_version.stdout is version('v14', '<')
+
+    - name: Set NodeJS to Update to Latest 16
+      ansible.builtin.set_fact:
+        nodejs_update_version: "16"
+      when: nodejs_version.stdout is version('v14', '>')
+
+    - name: Determine pm2 version
+      ansible.builtin.command: which pm2
+      register: pm2_exists
+      ignore_errors: true
+      changed_when: false
+
+    - name: Warn PM2 is not installed
+      ansible.builtin.debug:
+        msg: "WARNING: PM2 not installed"
+      when: not pm2_exists.stdout
+
+  roles:
+    - role: software/nodejs
+      vars:
+        node_version: "{{ nodejs_update_version }}"
+
+    - role: pm2
+      vars:
+        skip_nodejs: true
+      when: pm2_exists.stdout
