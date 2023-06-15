@@ -1,0 +1,64 @@
+---
+- name: Check if PM2 is installed
+  ansible.builtin.command: which pm2
+  register: pm2_exists
+  ignore_errors: true
+  changed_when: false
+
+- name: Save running PM2 Processes
+  ansible.builtin.command: pm2 save
+  become_user: itsc
+  become: true
+  when: pm2_exists.stdout
+
+- name: Restart SSH Session to Load New NPM binary
+  ansible.builtin.meta: reset_connection
+
+- name: Install PM2
+  npm:
+    name: pm2
+    state: latest
+    global: true
+  become_user: itsc
+  become: true
+
+- name: Determine node version
+  ansible.builtin.shell: source ~/.zshrc && node -v
+  register: nodejs_version
+  changed_when: false
+  become: true
+  become_user: itsc
+
+- name: Add PM2 to global commands
+  ansible.builtin.file:
+    src: "/home/itsc/.nvm/versions/node/{{ nodejs_version.stdout }}/bin/pm2"
+    dest: /usr/bin/pm2
+    state: link
+  become: true
+
+- name: Restart SSH Session to Load New PM2 binary
+  ansible.builtin.meta: reset_connection
+
+- name: Set PM2 to launch on startup
+  ansible.builtin.command: pm2 startup --service-name pm2 -u itsc --hp /home/itsc
+  register: pm2_startup
+  become: true
+  changed_when: "'Command successfully executed' in pm2_startup.stdout"
+
+- name: Update PM2 Daemon
+  ansible.builtin.command: pm2 update
+  become_user: itsc
+  become: true
+  when: pm2_exists.stdout
+
+- name: Resurrect PM2 Processes
+  ansible.builtin.command: pm2 resurrect
+  become_user: itsc
+  become: true
+  when: pm2_exists.stdout
+
+- name: Enable PM2 System Monitoring
+  ansible.builtin.command: pm2 set pm2:sysmonit true
+  become_user: itsc
+  become: true
+  when: pm2_exists.stdout
